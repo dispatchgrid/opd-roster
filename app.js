@@ -9,6 +9,40 @@ const PASS_SALT = "opdroster::";
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const MON = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const NIGHT_OFF_COL = "Night Off";
+const LEAVE_COL = "Leave";
+/* stored slot key -> shown label. Anything not listed shows its stored key. */
+const LABELS = {
+  "Leave": "Leave",
+  "8to12": "8-12",
+  "12to4": "12-4",
+  "4to6I": "2-5.30(I)",
+  "4to6II": "4-5(II)",
+  "8to2": "8-2",
+  "2to8": "2-8",
+  "Night": "Night",
+  "Night Off": "Night Off"
+};
+/* columns whose values live in their own database field rather than the slots list */
+const FIELD_COLS = { "Leave": "leave", "Night Off": "night_off" };
+/* order columns should prefer, while keeping any extra uploaded columns */
+const COL_ORDER = ["Leave", "8to12", "12to4", "4to6I", "4to6II", "8to2", "2to8", "Night", "Night Off"];
+function labelOf(key) { return LABELS[key] || key; }
+function keyOfLabel(label) {
+  const found = Object.keys(LABELS).find(k => LABELS[k].toLowerCase() === String(label).trim().toLowerCase());
+  return found || label;
+}
+/* header cells that are structure, not shifts — matched loosely */
+const STRUCT_HEADERS = [
+  { re: /^date$/i, key: "Date" },
+  { re: /^day(\s*name)?$/i, key: "Day" },
+  { re: /^ph\s*off$/i, key: "PH OFF" },
+  { re: /^is\s*ph$/i, key: "isPH" }
+];
+function normalizeHeader(h) {
+  const raw = String(h).trim();
+  for (const s of STRUCT_HEADERS) if (s.re.test(raw)) return s.key;
+  return keyOfLabel(raw);
+}
 const MONTHS_LOOKUP = { "01": "Jan", "02": "Feb", "03": "Mar", "04": "Apr", "05": "May", "06": "Jun", "07": "Jul", "08": "Aug", "09": "Sep", "10": "Oct", "11": "Nov", "12": "Dec" };
 
 /* ---------------- data layer ---------------- */
@@ -245,7 +279,8 @@ function toUploadISO(mdy) {
 function parseRosterCSV(text) {
   const grid = parseCSV(text);
   if (grid.length < 2) throw new Error("The file has no data rows.");
-  const head = grid[0].map(h => h.trim());
+  const rawHead = grid[0].map(h => h.trim());
+  const head = rawHead.map(normalizeHeader);
   const idx = {};
   head.forEach((h, i) => { idx[h] = i; });
   const slotCols = head.filter(h => !["Date", "Day", "Leave", "Night Off", "PH OFF", "isPH"].includes(h));
@@ -274,25 +309,36 @@ function parseRosterCSV(text) {
 }
 
 /* ---------------- slot columns ---------------- */
+function sortColumns(cols) {
+  return cols.slice().sort((a, b) => {
+    const ia = COL_ORDER.indexOf(a), ib = COL_ORDER.indexOf(b);
+    if (ia === -1 && ib === -1) return 0;
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+}
 function slotColumns(days) {
-  const cols = [], seen = new Set();
+  const cols = new Set(), seen = new Set();
   for (const d of days) for (const [name] of (d.slots || [])) {
-    if (!seen.has(name)) { seen.add(name); cols.push(name); }
+    if (!seen.has(name)) { seen.add(name); cols.add(name); }
   }
-  return cols;
+  return Array.from(cols);
 }
 function gridColumns(days) {
-  return slotColumns(days).concat([NIGHT_OFF_COL]);
+  return sortColumns([LEAVE_COL].concat(slotColumns(days), [NIGHT_OFF_COL]));
 }
 function slotValue(day, name) {
-  if (name === NIGHT_OFF_COL) return day.night_off ?? "";
+  const field = FIELD_COLS[name];
+  if (field) return day[field] ?? "";
   const pair = (day.slots || []).find(p => p[0] === name);
   return pair ? pair[1] : "";
 }
 async function saveSlotValue(day, name, v) {
-  if (name === NIGHT_OFF_COL) {
-    await db.patchDay(day.id, { night_off: v });
-    day.night_off = v;
+  const field = FIELD_COLS[name];
+  if (field) {
+    await db.patchDay(day.id, { [field]: v });
+    day[field] = v;
   } else {
     const slots = (day.slots || []).some(p => p[0] === name)
       ? (day.slots || []).map(p => p[0] === name ? [name, v] : p)
@@ -504,24 +550,20 @@ function makeEditable(el, getValue, save, opts) {
 /* ---------------- shared markup ---------------- */
 function daySheet(day, opts) {
   const editable = opts && opts.editable && isAdmin();
-  const rows = (day.slots || []).map(([name]) => {
+  const cols = gridColumns([day]);
+  const rows = cols.map((name) => {
     const val = slotValue(day, name);
     return `<div class="day-row">
-      <div class="slot">${esc(name)}</div>
+      <div class="slot">${esc(labelOf(name))}</div>
       <div class="val${editable ? " live-edit" : ""}"${editable ? ' data-edit-slot="' + esc(name) + '" title="Tap to change"' : ""}>${esc(displayValue(val).text)}</div>
     </div>`;
   }).join("");
-  const nightRow = `<div class="day-row">
-      <div class="slot">${esc(NIGHT_OFF_COL)}</div>
-      <div class="val${editable ? " live-edit" : ""}"${editable ? ' data-edit-slot="' + esc(NIGHT_OFF_COL) + '" title="Tap to change"' : ""}>${esc(displayValue(day.night_off).text)}</div>
-    </div>`;
   const notes = [];
-  if (day.leave) notes.push(["Leave", day.leave, "leave"]);
   if (day.ph_off) notes.push(["Off (public holiday)", day.ph_off, "ph_off"]);
   const foot = notes.length ? `<div class="day-footnotes">${notes.map(([l, v, f]) =>
     `<div class="day-footnote"><span class="fn-label">${esc(l)}</span><span class="fn-val${editable ? " live-edit" : ""}"${editable ? ' data-edit-field="' + f + '" title="Tap to change"' : ""}>${esc(v)}</span></div>`).join("")}</div>` : "";
   return `<div class="day-sheet${day.is_ph ? " is-ph" : ""}">
-    <div class="day-rows">${rows}${nightRow}</div>${foot}
+    <div class="day-rows">${rows}</div>${foot}
   </div>`;
 }
 
@@ -686,7 +728,7 @@ function renderGrid(roster, days) {
     </div>
     <div class="gridwrap">
       <table class="grid">
-        <thead><tr><th class="stamp-col" aria-label="Date"><span class="th-day">Day</span></th>${cols.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead>
+        <thead><tr><th class="stamp-col" aria-label="Date"><span class="th-day">Day</span></th>${cols.map(c => `<th>${esc(labelOf(c))}</th>`).join("")}</tr></thead>
         <tbody>${days.map(day => gridRow(day, cols, admin, todayISO())).join("") || '<tr><td class="empty-note" colspan="1">No days in this roster yet.</td></tr>'}</tbody>
       </table>
     </div>
@@ -772,8 +814,7 @@ function renderGrid(roster, days) {
         day.night_off, day.ph_off, day.is_ph ? "1" : ""
       ];
       lines.push(row.map(csvField).join(","));
-    }
-    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    }    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = roster.title.replace(/[^\w -]/g, "").trim() + ".csv";
@@ -891,7 +932,6 @@ function renderDayDetail(date, day) {
 
 /* cell editing inside a day sheet (today + day view) */
 function bindSheetEditing(scope, day, onDone) {
-  const cols = slotColumns([day]).concat([NIGHT_OFF_COL]);
   scope.querySelectorAll("[data-edit-slot]").forEach(el => {
     makeEditable(el,
       () => slotValue(day, el.dataset.editSlot),
