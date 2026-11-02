@@ -12,7 +12,7 @@
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="#/">
+  <a class="brand" href="#/today">
     <span class="brand-name" id="brand-name">OPD Unit</span>
     <span class="brand-hospital" id="brand-hospital"></span>
   </a>
@@ -21,6 +21,10 @@
     <button id="btn-admin-menu" class="btn ghost" hidden>Menu</button>
   </nav>
 </header>
+<nav class="tabs" id="tabs" aria-label="Views">
+  <a class="tab" data-tab="today" href="#/today">Today's duty</a>
+  <a class="tab" data-tab="grid" href="#/grid">Full grid</a>
+</nav>
 <main id="view" class="view" aria-live="polite"></main>
 <footer class="foot">Duty roster — updates the moment changes are saved.</footer>
 <div id="modal-root"></div>

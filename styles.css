@@ -39,8 +39,7 @@ button { font: inherit; }
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px var(--pad) 10px;
-  border-bottom: 2px solid var(--ink);
+  padding: 14px var(--pad) 6px;
   background: var(--bg);
 }
 .brand { display: flex; flex-direction: column; min-width: 0; color: var(--ink); }
@@ -65,6 +64,35 @@ button { font: inherit; }
 .btn.danger { border-color: var(--danger); color: var(--danger); background: transparent; font-weight: 600; }
 .btn:disabled { opacity: .45; cursor: default; }
 .btn:focus-visible, a:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+/* ---------- tabs ---------- */
+.tabs {
+  display: flex;
+  gap: 4px;
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 0 var(--pad);
+  border-bottom: 2px solid var(--ink);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 10;
+}
+.tab {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--dim);
+  padding: 8px 14px 7px;
+  border-bottom: 2.5px solid transparent;
+  margin-bottom: -2px;
+}
+.tab[aria-current="page"] {
+  color: var(--ink);
+  border-bottom-color: var(--teal);
+}
+.tab, .tab:active { color: var(--dim); }
+.tab[aria-current="page"], .tab[aria-current="page"]:active { color: var(--ink); }
 
 /* ---------- generic blocks ---------- */
 .view { max-width: 980px; margin: 0 auto; padding: 0 var(--pad) 60px; }
@@ -163,7 +191,7 @@ button { font: inherit; }
 .roster-row:hover { background: var(--surface); }
 
 /* ---------- month grid ---------- */
-.month-head {
+.grid-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -171,10 +199,25 @@ button { font: inherit; }
   margin-top: 18px;
   border-bottom: 2px solid var(--ink);
   padding-bottom: 8px;
+  flex-wrap: wrap;
 }
-.month-title { font-size: 32px; }
+.grid-title { font-size: 30px; }
+.month-note { color: var(--dim); font-family: "Barlow Condensed", sans-serif; font-size: 20px; font-weight: 600; }
+.month-select { }
 .month-tools { display: flex; flex-wrap: wrap; gap: 7px; justify-content: flex-end; }
 .month-tools .btn { padding: 6px 10px; font-size: 13px; }
+#month-select {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--ink);
+  background: transparent;
+  border: none;
+  border-bottom: 1.5px dashed var(--rule);
+  padding: 2px 2px;
+  margin-left: -2px;
+}
+#month-select:focus { outline: 2px solid var(--teal); }
 
 .gridwrap {
   margin-top: 14px;
@@ -202,18 +245,39 @@ table.grid { border-collapse: collapse; min-width: 100%; font-size: 13.5px; }
   border-bottom: 2px solid var(--ink);
   z-index: 2;
 }
-.grid td.stamp-col, .grid th.stamp-col { position: sticky; left: 0; background: var(--surface); z-index: 1; border-right: 1px solid var(--rule); }
-.grid thead th.stamp-col { z-index: 3; }
+.grid td.stamp-col, .grid th.stamp-col { position: sticky; left: 0; background: var(--surface); z-index: 1; border-right: 1px solid var(--rule); text-align: center; min-width: 34px; }
+.grid thead th.stamp-col { z-index: 3; vertical-align: bottom; }
+.th-day { font-size: 13px; color: var(--dim); font-weight: 600; }
+.stamp-num { display: block; font-size: 13px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.stamp-wd { display: block; font-size: 9.5px; letter-spacing: .05em; color: var(--dim); line-height: 1.2; }
+.stamp-ph { color: #8A6D1A; font-weight: 700; margin-left: 3px; letter-spacing: .02em; }
+.grid td { vertical-align: middle; }
+.grid td.stamp-col { cursor: pointer; }
+.grid td.stamp-col a { color: inherit; }
+.grid td.stamp-col:hover, .grid tr.ph td.stamp-col:hover { background: var(--teal-dim); }
+.grid tr.ph td.stamp-col:hover { background: #EFE3A6; }
 .stamp-date { font-weight: 600; }
 .stamp-day { color: var(--dim); font-size: 12px; margin-left: 6px; }
 .grid tr.ph td { background: var(--wash); }
 .grid tr.ph td.stamp-col { background: var(--wash); }
 .grid tr.today td { box-shadow: inset 2px 0 0 var(--teal), inset 0 2px 0 var(--teal), inset -2px 0 0 var(--teal); }
 .grid tr:last-child td { border-bottom: none; }
-td.duty { cursor: pointer; }
-td.duty:hover { background: var(--teal-dim); }
-tr.ph td.duty:hover { background: #EFE3A6; }
 .grid .empty-note td, .empty-note { color: var(--dim); padding: 20px; }
+
+/* ---------- inline editing ---------- */
+.editable { cursor: text; }
+.inline-input {
+  border: none;
+  outline: 2px solid var(--teal);
+  outline-offset: -2px;
+  background: var(--bg);
+  border-radius: 3px;
+  padding: 3px 7px;
+  font: inherit;
+  width: 96%;
+  min-width: 64px;
+}
+.saving { opacity: .55; }
 
 /* ---------- day view ---------- */
 .dayview-head {
