@@ -1,0 +1,170 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Favicon Generator</title>
+<style>
+  body { font-family: monospace; padding: 20px; }
+  canvas { border: 1px solid #ccc; margin: 4px; image-rendering: pixelated; }
+  .size-group { margin-bottom: 16px; }
+  button { padding: 8px 16px; margin: 4px; cursor: pointer; }
+  #status { margin-top: 16px; color: #666; }
+</style>
+</head>
+<body>
+<h1>OPD Roster Favicon Generator</h1>
+<div id="canvases"></div>
+<button id="downloadAll">Download All Sizes</button>
+<button id="downloadICO">Download favicon.ico</button>
+<div id="status"></div>
+
+<script>
+const TEAL_LIGHT = '#12695E';
+const TEAL_DARK = '#2A9186';
+const SLATE_DARK = '#0F1A22';
+const WHITE = '#FFFFFF';
+
+const sizes = [16, 32, 48, 64, 128, 256];
+const container = document.getElementById('canvases');
+const status = document.getElementById('status');
+const results = [];
+
+function drawFavicon(ctx, size, isDark) {
+  const bg = isDark ? SLATE_DARK : WHITE;
+  const fg = isDark ? TEAL_DARK : TEAL_LIGHT;
+  
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, size, size);
+  
+  const module = size / 32 * 4;
+  const margin = module;
+  const active = size - 2 * margin;
+  const ruleH = Math.max(1, Math.round(module));
+  const gap = Math.max(1, Math.round(module));
+  const spineW = Math.max(1, Math.round(module / 2));
+  
+  ctx.fillStyle = fg;
+  
+  const spineX = Math.round(size / 2 - spineW / 2) - (size >= 32 ? 1 : 0);
+  ctx.fillRect(spineX, margin, spineW, active);
+  
+  const rulesStartX = spineX + spineW + Math.round(module * 0.5);
+  const rulesWidth = size - rulesStartX - margin;
+  
+  const ruleCenters = [
+    margin + gap + ruleH/2,
+    size/2,
+    size - margin - gap - ruleH/2
+  ];
+  
+  ruleCenters.forEach(cy => {
+    const y = Math.round(cy - ruleH/2);
+    ctx.fillRect(rulesStartX, y, rulesWidth, ruleH);
+  });
+}
+
+sizes.forEach(size => {
+  const group = document.createElement('div');
+  group.className = 'size-group';
+  
+  ['light', 'dark'].forEach(mode => {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    canvas.style.width = `${size * 2}px`;
+    canvas.style.height = `${size * 2}px`;
+    const ctx = canvas.getContext('2d');
+    drawFavicon(ctx, size, mode === 'dark');
+    
+    const label = document.createElement('div');
+    label.textContent = `${size}px ${mode}`;
+    label.style.fontSize = '11px';
+    
+    const wrapper = document.createElement('div');
+    wrapper.style.display = 'inline-block';
+    wrapper.style.margin = '4px';
+    wrapper.appendChild(label);
+    wrapper.appendChild(canvas);
+    group.appendChild(wrapper);
+    
+    results.push({ canvas, size, mode, ctx });
+  });
+  
+  container.appendChild(group);
+});
+
+document.getElementById('downloadAll').onclick = () => {
+  results.forEach(({ canvas, size, mode }) => {
+    const link = document.createElement('a');
+    link.download = `favicon-${size}-${mode}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  });
+  status.textContent = 'Downloaded ' + results.length + ' files';
+};
+
+function canvasToBlob(canvas) {
+  return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+}
+
+async function makeICO() {
+  status.textContent = 'Generating ICO...';
+  const icoSizes = [16, 32, 48];
+  const pngBlobs = [];
+  
+  for (const size of icoSizes) {
+    const r = results.find(x => x.size === size && x.mode === 'light');
+    if (!r) continue;
+    const blob = await canvasToBlob(r.canvas);
+    pngBlobs.push({ size, blob });
+  }
+  
+  // Build ICO
+  const header = new Uint8Array(6);
+  const dv = new DataView(header.buffer);
+  dv.setUint16(0, 0, true);   // reserved
+  dv.setUint16(2, 1, true);   // type
+  dv.setUint16(4, icoSizes.length, true); // count
+  
+  const dirEntrySize = 16;
+  const imageOffset = 6 + icoSizes.length * dirEntrySize;
+  const dirEntries = new Uint8Array(icoSizes.length * dirEntrySize);
+  const imageDataParts = [];
+  let offset = imageOffset;
+  
+  pngBlobs.forEach(({ size, blob }, i) => {
+    const entry = new Uint8Array(dirEntrySize);
+    const edv = new DataView(entry.buffer);
+    edv.setUint8(0, size);
+    edv.setUint8(1, size);
+    edv.setUint8(2, 0); // color count
+    edv.setUint8(3, 0); // reserved
+    edv.setUint16(4, 1, true); // planes
+    edv.setUint16(6, 32, true); // bpp
+    edv.setUint32(8, blob.size, true); // size
+    edv.setUint32(12, offset, true); // offset
+    dirEntries.set(entry, i * dirEntrySize);
+    imageDataParts.push(new Uint8Array(await blob.arrayBuffer()));
+    offset += blob.size;
+  });
+  
+  const totalSize = header.length + dirEntries.length + imageDataParts.reduce((a, b) => a + b.length, 0);
+  const ico = new Uint8Array(totalSize);
+  ico.set(header, 0);
+  ico.set(dirEntries, header.length);
+  let pos = header.length + dirEntries.length;
+  imageDataParts.forEach(d => { ico.set(d, pos); pos += d.length; });
+  
+  const icoBlob = new Blob([ico], { type: 'image/x-icon' });
+  const url = URL.createObjectURL(icoBlob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'favicon.ico';
+  a.click();
+  status.textContent = 'favicon.ico downloaded';
+}
+
+document.getElementById('downloadICO').onclick = makeICO;
+</script>
+</body>
+</html>
