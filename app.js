@@ -1,4 +1,6 @@
-/* OPD Roster — data from Supabase (storage only), all logic client-side */
+/* OPD Roster — data from Supabase (storage only), all logic client-side.
+   Offline: the app shell is cached by sw.js; freshest data is saved locally
+   and rendered first, then refreshed from the network when reachable. */
 "use strict";
 
 const SUPABASE_URL = "https://iuddpeelzfpbuvyxrrec.supabase.co";
@@ -7,7 +9,7 @@ const PASS_SALT = "opdroster::";
 const MONTHS = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const MON = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const NIGHT_OFF_COL = "Night Off";
-const DAY = 86400000;
+const MONTHS_LOOKUP = { "01": "Jan", "02": "Feb", "03": "Mar", "04": "Apr", "05": "May", "06": "Jun", "07": "Jul", "08": "Aug", "09": "Sep", "10": "Oct", "11": "Nov", "12": "Dec" };
 
 /* ---------------- data layer ---------------- */
 async function api(path, opts = {}) {
@@ -82,6 +84,115 @@ async function sha256hex(text) {
   return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 function cssId(s) { return s.replace(/[^a-zA-Z0-9_-]/g, "_"); }
+
+/* ---------------- theme ---------------- */
+const THEME_KEY = "opd_theme";
+function currentTheme() {
+  return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+}
+function applyThemeLabel() {
+  $("#btn-theme").textContent = currentTheme() === "dark" ? "Light" : "Dark";
+}
+$("#btn-theme").addEventListener("click", () => {
+  const next = currentTheme() === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem(THEME_KEY, next); } catch (_) {}
+  applyThemeLabel();
+});
+applyThemeLabel();
+
+/* ---------------- saved-data cache & status strip ---------------- */
+const DATA_PREFIX = "opd_data:";
+function cacheRead(key) {
+  try {
+    const raw = localStorage.getItem(DATA_PREFIX + key);
+    if (!raw) return null;
+    const w = JSON.parse(raw);
+    if (!w || typeof w.t !== "number") return null;
+    return { data: w.v, savedAt: w.t };
+  } catch (_) { return null; }
+}
+function cacheWrite(key, data) {
+  try { localStorage.setItem(DATA_PREFIX + key, JSON.stringify({ t: Date.now(), v: data })); } catch (_) {}
+}
+function dataSavedAt() {
+  let newest = 0;
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(DATA_PREFIX)) {
+        const t = (JSON.parse(localStorage.getItem(k)) || {}).t || 0;
+        if (t > newest) newest = t;
+      }
+    }
+  } catch (_) {}
+  return newest;
+}
+function savedStamp() {
+  const ms = dataSavedAt();
+  if (!ms) return "";
+  const d = new Date(ms);
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) return d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0");
+  return d.getDate() + " " + MONTHS_LOOKUP[String(d.getMonth() + 1).padStart(2, "0")];
+}
+
+const syncStrip = $("#sync-strip"), syncText = $("#sync-text");
+let syncTimer = null, connState = navigator.onLine ? "online" : "offline";
+window.addEventListener("online", () => { connState = "online"; reletter(); });
+window.addEventListener("offline", () => { connState = "offline"; reletter(); });
+
+function stripShow(cls, text) {
+  clearInterval(syncTimer);
+  syncText.textContent = text;
+  syncStrip.className = "sync-strip show" + (cls ? " " + cls : "");
+}
+function stripHide() {
+  clearInterval(syncTimer);
+  syncStrip.className = "sync-strip";
+}
+function reletter() {
+  if (syncStrip.classList.contains("stale")) syncText.textContent = staleText();
+  /* other states are momentary and settle on their own */
+}
+function staleText() {
+  return (connState === "offline" ? "Offline — showing saved copy" : "Slow connection — showing saved copy")
+    + (dataSavedAt() ? " (saved " + savedStamp() + ")" : "");
+}
+
+/* session controller: shows statuses only when a saved copy is on screen */
+function syncSession(cachedShown) {
+  const shown = !!cachedShown;
+  let timer = null;
+  const obj = {
+    shown: () => shown,
+    stale() {
+      clearInterval(timer); timer = null;
+      stripShow("stale", staleText());
+    },
+    trying() {
+      if (!shown) return; /* nothing cached: the plain loading text covers it */
+      clearInterval(timer);
+      timer = setTimeout(() => {
+        syncStrip.classList.add("show");
+        syncStrip.classList.remove("stale", "updated");
+        syncText.textContent = "Reaching for the latest…";
+      }, 900);
+    },
+    fresh() {
+      clearInterval(timer); timer = null;
+      if (shown) stripShow("updated", "Up to date");
+      else stripHide();
+      syncTimer = setTimeout(() => { if (syncStrip.classList.contains("updated")) stripHide(); }, 2200);
+    },
+    fail() {
+      clearInterval(timer); timer = null;
+      if (shown) this.stale();
+    }
+  };
+  return obj;
+}
 
 /* ---------------- admin session ---------------- */
 const ADMIN_KEY = "opd_admin";
@@ -199,18 +310,26 @@ function errInto(modal, e) {
   if (msg) msg.textContent = (e && e.message) || "Something went wrong.";
 }
 
-/* ---------------- header / auth ---------------- */
+/* ---------------- header / settings (cached offline) ---------------- */
 let settingsCache = null;
+async function refreshSettings() {
+  try {
+    const rows = await db.settings();
+    settingsCache = {};
+    rows.forEach(r => settingsCache[r.key] = r.value);
+    cacheWrite("settings", settingsCache);
+  } catch (e) {
+    const cached = cacheRead("settings");
+    if (cached) settingsCache = cached.data;
+    else throw e;
+  }
+}
 async function loadHeader() {
   try {
-    if (!settingsCache) {
-      const rows = await db.settings();
-      settingsCache = {};
-      rows.forEach(r => settingsCache[r.key] = r.value);
-    }
+    if (!settingsCache) await refreshSettings();
     $("#brand-name").textContent = settingsCache.unit_name || "OPD Unit";
     $("#brand-hospital").textContent = settingsCache.hospital_name || "";
-  } catch (_) { /* fall back to defaults */ }
+  } catch (_) { /* keep the defaults if completely offline with no cache */ }
   $("#btn-login").hidden = isAdmin();
   $("#btn-admin-menu").hidden = !isAdmin();
 }
@@ -218,10 +337,10 @@ async function loadHeader() {
 $("#btn-login").addEventListener("click", async () => {
   let hash = "";
   try {
-    const rows = await db.settings();
-    hash = (rows.find(r => r.key === "admin_pass_hash") || {}).value || "";
+    if (!settingsCache) await refreshSettings();
+    hash = settingsCache.admin_pass_hash || "";
   } catch (_) {}
-  if (!hash) return alert("Can't log in right now — server unreachable. Try again in a moment.");
+  if (!hash) return alert("Can't log in right now — no internet and no saved copy. Try again once you're back online.");
   openModal(`
     <h3>Admin login</h3>
     <p class="sub">Enter the unit password to edit rosters.</p>
@@ -275,7 +394,7 @@ $("#btn-admin-menu").addEventListener("click", () => {
 });
 
 async function openSettingsModal() {
-  if (!settingsCache) await loadHeader();
+  if (!settingsCache) await refreshSettings();
   openModal(`
     <h3>Settings</h3>
     <p class="sub">Shown in the header on every device.</p>
@@ -322,11 +441,11 @@ function makeEditable(el, getValue, save, opts) {
   opts = opts || {};
   el.classList.add("editable");
   el.addEventListener("click", () => {
-    if (el.querySelector("input") || view._dirty) return;
+    if (el.querySelector("input")) return;
     const original = getValue();
     const input = document.createElement("input");
     input.type = "text";
-    input.setAttribute("aria-label", opts.label || getValue());
+    input.setAttribute("aria-label", opts.label || "");
     input.value = original;
     input.className = "inline-input";
     const cellClass = el.className;
@@ -346,12 +465,12 @@ function makeEditable(el, getValue, save, opts) {
       el.classList.add("saving");
       try {
         await save(v);
-        view._dirty = false;
+        el.classList.remove("saving");
         if (opts.fullRefresh) opts.fullRefresh();
         else setCellText(el, v, cellClass);
       } catch (err) {
-        view._dirty = false;
-        alert("Couldn't save: " + (err.message || err));
+        el.classList.remove("saving");
+        alert("Couldn't save" + (connState === "offline" ? " — you are offline" : "") + ": " + (err.message || err));
         if (opts.fullRefresh) opts.fullRefresh();
         else setCellText(el, original, cellClass);
       }
@@ -401,6 +520,7 @@ function stampCell(day) {
 const view = $("#view");
 async function route() {
   const parts = (location.hash || "#/today").slice(2).split("/");
+  if (parts[0] === "m" && parts[1]) { location.replace("#/grid/" + parts[1]); return; }
   syncTabs(parts[0]);
   try {
     if (parts[0] === "grid") await gridView(parts[1] || null);
@@ -408,6 +528,7 @@ async function route() {
     else await todayView();
   } catch (e) {
     view.innerHTML = `<div class="error-banner">Couldn't load data — ${esc((e && e.message) || "server unreachable")}. <a href="#/today">Retry</a></div>`;
+    stripHide();
   }
 }
 window.addEventListener("hashchange", route);
@@ -421,26 +542,8 @@ function syncTabs(section) {
 }
 
 /* ---------------- today's duty ---------------- */
-async function todayView() {
-  view.innerHTML = '<p style="color:var(--dim)">Loading…</p>';
-  const rosters = await db.rosters();
-  const t = todayISO();
-  let day = null, roster = null;
-  const match = rosters.find(r => r.month_anchor.slice(0, 7) === t.slice(0, 7));
-  if (match) {
-    const found = await db.dayOn(match.id, t);
-    if (found.length) { day = found[0]; roster = match; }
-  }
-  if (!day) {
-    const latest = rosters[0];
-    view.innerHTML = `
-      <div class="no-today">
-        <strong>No roster for today.</strong>
-        ${latest ? `<div>The latest roster is <a href="#/grid/${latest.id}">${esc(monthTitle(latest.month_anchor))}</a>.</div>` : "<div>Upload one as admin to get started.</div>"}
-      </div>`;
-    return;
-  }
-  const d = parseISO(t);
+function renderToday(day, rosterId) {
+  const d = parseISO(todayISO());
   view.innerHTML = `
     <div class="today-topline">
       <div class="today-date">
@@ -455,25 +558,103 @@ async function todayView() {
   if (isAdmin()) bindSheetEditing(view, day, () => route());
 }
 
-/* ---------------- full grid ---------------- */
-async function gridView(rosterId) {
-  view.innerHTML = '<p style="color:var(--dim)">Loading…</p>';
-  const rosters = await db.rosters();
-  if (!rosters.length) {
-    view.innerHTML = '<div class="no-today"><strong>Nothing here yet.</strong><div>An admin can upload a roster CSV.</div></div>';
-    return;
-  }
+async function todayView() {
   const t = todayISO();
-  let roster = rosterId ? rosters.find(r => r.id === rosterId) : null;
-  if (!roster) roster = rosters.find(r => r.month_anchor.slice(0, 7) === t.slice(0, 7)) || rosters[0];
-  const days = await db.days(roster.id);
+  const cachedDay = cacheRead("day:" + t);
+  const sync = syncSession(!!cachedDay);
+  if (cachedDay) {
+    renderToday(cachedDay.data);
+    if (connState === "offline") sync.stale();
+    else sync.trying();
+  } else {
+    view.innerHTML = '<p style="color:var(--dim)">Loading…</p>';
+  }
+
+  try {
+    const rosters = await db.rosters();
+    cacheWrite("rosters", rosters);
+    const match = rosters.find(r => r.month_anchor.slice(0, 7) === t.slice(0, 7));
+    let day = null, roster = null;
+    if (match) {
+      const found = await db.dayOn(match.id, t);
+      if (found.length) { day = found[0]; roster = match; }
+    }
+    if (day) {
+      cacheWrite("day:" + t, day);
+      renderToday(day);
+      sync.fresh();
+    } else {
+      stripHide();
+      const latest = rosters[0];
+      view.innerHTML = `
+        <div class="no-today">
+          <strong>No roster for today.</strong>
+          ${latest ? `<div>The latest roster is <a href="#/grid/${latest.id}">${esc(monthTitle(latest.month_anchor))}</a>.</div>` : "<div>Upload one as admin to get started.</div>"}
+        </div>`;
+    }
+  } catch (e) {
+    if (cacheRead("day:" + t)) sync.fail();
+    else { stripHide(); view.innerHTML = `<div class="error-banner">Couldn't load data — ${esc((e && e.message) || "server unreachable")}. <a href="#/today">Retry</a></div>`; }
+  }
+}
+
+/* ---------------- full grid ---------------- */
+let gridCurrent = null; /* id of the roster currently rendered, used by month select */
+
+async function gridView(rosterId) {
+  const t = todayISO();
+
+  const cachedRosters = cacheRead("rosters");
+  let cachedShown = false, cachedRoster = null, cachedDaysData = null;
+  if (cachedRosters && cachedRosters.data.length) {
+    cachedRoster = pickRoster(cachedRosters.data, rosterId, t);
+    const cachedDays = cachedRoster && cacheRead("days:" + cachedRoster.id);
+    if (cachedDays && cachedDays.data.length) {
+      cachedDaysData = cachedDays.data;
+      cachedShown = true;
+    }
+  }
+  const sync = syncSession(cachedShown);
+  if (cachedShown) {
+    renderGrid(cachedRoster, cachedDaysData);
+    if (connState === "offline") sync.stale();
+    else sync.trying();
+  } else {
+    view.innerHTML = '<p style="color:var(--dim)">Loading…</p>';
+  }
+
+  try {
+    const rosters = await db.rosters();
+    cacheWrite("rosters", rosters);
+    const roster = pickRoster(rosters, rosterId, t);
+    const days = await db.days(roster.id);
+    cacheWrite("days:" + roster.id, days);
+    renderGrid(roster, days);
+    sync.fresh();
+  } catch (e) {
+    if (cachedShown) sync.fail();
+    else { stripHide(); view.innerHTML = `<div class="error-banner">Couldn't load data — ${esc((e && e.message) || "server unreachable")}. <a href="#/grid">Retry</a></div>`; }
+  }
+}
+
+function pickRoster(list, rosterId, t) {
+  if (rosterId) {
+    const r = list.find(x => x.id === rosterId);
+    if (r) return r;
+  }
+  return list.find(r => r.month_anchor.slice(0, 7) === t.slice(0, 7)) || list[0] || null;
+}
+
+function renderGrid(roster, days) {
+  gridCurrent = roster.id;
   const cols = gridColumns(days);
   const admin = isAdmin();
   const byId = {};
   days.forEach(d => byId[d.id] = d);
+  const rostersNow = (cacheRead("rosters") || {}).data || [];
 
-  const selector = rosters.length > 1
-    ? `<select id="month-select" aria-label="Month">${rosters.map(r =>
+  const selector = rostersNow.length > 1
+    ? `<select id="month-select" aria-label="Month">${rostersNow.map(r =>
         `<option value="${r.id}" ${r.id === roster.id ? "selected" : ""}>${esc(monthTitle(r.month_anchor))}</option>`).join("")}</select>`
     : `<span class="month-note">${esc(monthTitle(roster.month_anchor))}</span>`;
 
@@ -489,11 +670,19 @@ async function gridView(rosterId) {
     <div class="gridwrap">
       <table class="grid">
         <thead><tr><th class="stamp-col" aria-label="Date"><span class="th-day">Day</span></th>${cols.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead>
-        <tbody>${days.map(day => gridRow(day, cols, admin, t)).join("") || '<tr><td class="empty-note" colspan="1">No days in this roster yet.</td></tr>'}</tbody>
+        <tbody>${days.map(day => gridRow(day, cols, admin, todayISO())).join("") || '<tr><td class="empty-note" colspan="1">No days in this roster yet.</td></tr>'}</tbody>
       </table>
     </div>
     ${admin ? `<input type="file" id="file-csv" accept=".csv,text/csv" style="display:none">` : ""}
   `;
+
+  $$("td[data-edit-slot]", view).forEach((cell) => {
+    const day = byId[cell.dataset.day];
+    makeEditable(cell,
+      () => slotValue(day, cell.dataset.editSlot),
+      (v) => saveSlotValue(day, cell.dataset.editSlot, v),
+      { label: longDate(day.roster_date) + ", " + cell.dataset.editSlot });
+  });
 
   const sel = $("#month-select");
   if (sel) sel.addEventListener("change", () => { location.hash = "#/grid/" + sel.value; });
@@ -507,12 +696,12 @@ async function gridView(rosterId) {
     if (!file) return;
     try {
       const parsed = parseRosterCSV(await file.text());
-      openConfirmUpload(parsed, roster);
+      openConfirmUpload(parsed);
     } catch (err) {
       alert("Couldn't read that file: " + (err.message || err));
     }
   });
-  function openConfirmUpload(parsed, current) {
+  function openConfirmUpload(parsed) {
     const d0 = parseISO(parsed[0].roster_date);
     const title = MONTHS[d0.getMonth()] + " " + d0.getFullYear();
     const anchor = fmtISO(new Date(d0.getFullYear(), d0.getMonth(), 1));
@@ -545,6 +734,7 @@ async function gridView(rosterId) {
           await api("roster_days", { method: "POST", body: JSON.stringify(parsed.map(d => ({ ...d, roster_id: created.id }))) });
           closeModal();
           location.hash = "#/grid/" + created.id;
+          if (location.hash === "#/grid/" + created.id) route();
         } catch (err) { errInto(modal, err); }
       });
     });
@@ -571,18 +761,6 @@ async function gridView(rosterId) {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   });
-
-  view.querySelectorAll("td[data-edit-slot]").forEach((cell) => {
-    const day = byId[cell.dataset.day];
-    makeEditable(cell,
-      () => slotValue(day, cell.dataset.editSlot),
-      (v) => saveSlotValue(day, cell.dataset.editSlot, v),
-      {
-        label: longDate(day.roster_date) + ", " + cell.dataset.editSlot
-      });
-  });
-
-  async function refresh() { await gridView(roster.id); }
 }
 
 function gridRow(day, cols, admin, today) {
@@ -591,8 +769,7 @@ function gridRow(day, cols, admin, today) {
     const edit = admin ? ` data-edit-slot="${esc(c)}" data-day="${day.id}" title="Tap to change"` : "";
     return `<td${edit}${dv.cls ? ' class="' + dv.cls + '"' : ""}>${esc(dv.text)}</td>`;
   }).join("");
-  const cls = (day.is_ph ? "ph" : "") + (day.roster_date === today ? " today" : "");
-  return `<tr class="${cls}">
+  return `<tr class="${day.is_ph ? "ph" : ""}${day.roster_date === today ? " today" : ""}">
     <td class="stamp-col"><a href="#/d/${day.roster_date}" style="color:inherit">${stampCell(day)}</a></td>
     ${cells}
   </tr>`;
@@ -600,28 +777,53 @@ function gridRow(day, cols, admin, today) {
 
 /* ---------------- day view ---------------- */
 async function dayView(date) {
-  view.innerHTML = '<p style="color:var(--dim)">Loading…</p>';
-  const rosters = await db.rosters();
-  const match = rosters.find(r => r.month_anchor.slice(0, 7) === date.slice(0, 7));
-  if (!match) {
-    view.innerHTML = `<div class="error-banner">No roster covers ${esc(longDate(date))}. <a href="#/grid">Back to full grid</a></div>`;
-    return;
+  let cachedShown = false;
+  const cachedDay = cacheRead("day:" + date);
+  if (cachedDay) {
+    try { renderDayDetail(date, cachedDay.data); cachedShown = true; } catch (_) {}
   }
-  const found = await db.dayOn(match.id, date);
-  if (!found.length) {
-    view.innerHTML = `<div class="error-banner">${esc(monthTitle(match.month_anchor))} has no entry for ${esc(longDate(date))}. <a href="#/grid/${match.id}">Open the month</a></div>`;
-    return;
+  const sync = syncSession(cachedShown);
+  if (cachedShown) {
+    if (connState === "offline") sync.stale();
+    else sync.trying();
+  } else {
+    view.innerHTML = '<p style="color:var(--dim)">Loading…</p>';
   }
-  const day = found[0];
+
+  try {
+    const rosters = await db.rosters();
+    cacheWrite("rosters", rosters);
+    const match = rosters.find(r => r.month_anchor.slice(0, 7) === date.slice(0, 7));
+    if (!match) {
+      stripHide();
+      view.innerHTML = `<div class="error-banner">No roster covers ${esc(longDate(date))}. <a href="#/grid">Back to full grid</a></div>`;
+      return;
+    }
+    const found = await db.dayOn(match.id, date);
+    if (!found.length) {
+      stripHide();
+      view.innerHTML = `<div class="error-banner">${esc(monthTitle(match.month_anchor))} has no entry for ${esc(longDate(date))}. <a href="#/grid/${match.id}">Open the month</a></div>`;
+      return;
+    }
+    cacheWrite("day:" + date, found[0]);
+    renderDayDetail(date, found[0]);
+    sync.fresh();
+  } catch (e) {
+    if (cachedShown) sync.fail();
+    else { stripHide(); view.innerHTML = `<div class="error-banner">Couldn't load data — ${esc((e && e.message) || "server unreachable")}. <a href="#/d/${date}">Retry</a></div>`; }
+  }
+}
+
+function renderDayDetail(date, day) {
   const editable = isAdmin();
   const d = parseISO(date);
   view.innerHTML = `
-    <a class="backlink" href="#/grid/${match.id}">← Full grid</a>
+    <a class="backlink" href="#/grid">← Full grid</a>
     <div class="dayview-head">
       <span class="dayview-num">${d.getDate()}</span>
       <span>
         <strong style="font-size:17px">${MONTHS[d.getMonth()]} ${d.getFullYear()}</strong>
-        <div class="dayview-meta">${esc(day.day_name || MON[d.getDay()])}${day.is_ph ? ' · <span class="ph-stamp">PH</span> public holiday' : " · " + esc(monthTitle(match.month_anchor))}</div>
+        <div class="dayview-meta">${esc(day.day_name || MON[d.getDay()])}${day.is_ph ? ' · <span class="ph-stamp">PH</span> public holiday' : ""}</div>
       </span>
     </div>
     ${daySheet(day, { editable: true })}
@@ -633,9 +835,9 @@ async function dayView(date) {
   `;
   if (!editable) return;
   const rebuild = () => dayView(date);
-  $("#t-ph").addEventListener("click", () => {
-    try { saveDayField(day, "is_ph", !day.is_ph).then(rebuild); }
-    catch (err) { alert("Couldn't save: " + err.message); }
+  $("#t-ph").addEventListener("click", async () => {
+    try { await saveDayField(day, "is_ph", !day.is_ph); await rebuild(); }
+    catch (err) { alert("Couldn't save" + (connState === "offline" ? " — you are offline" : "") + ": " + (err.message || err)); }
   });
   $("#t-destroy").addEventListener("click", () => {
     openModal(`
@@ -649,7 +851,7 @@ async function dayView(date) {
     `, (m) => {
       $("[data-cancel]", m).addEventListener("click", closeModal);
       $("#dd-go", m).addEventListener("click", async () => {
-        try { await db.deleteDay(day.id); closeModal(); location.hash = "#/grid/" + match.id; }
+        try { await db.deleteDay(day.id); closeModal(); location.hash = "#/grid"; }
         catch (err) { errInto(m, err); }
       });
     });
@@ -659,7 +861,7 @@ async function dayView(date) {
 
 /* cell editing inside a day sheet (today + day view) */
 function bindSheetEditing(scope, day, onDone) {
-  const cols = gridColumns([day]);
+  const cols = slotColumns([day]).concat([NIGHT_OFF_COL]);
   scope.querySelectorAll("[data-edit-slot]").forEach(el => {
     makeEditable(el,
       () => slotValue(day, el.dataset.editSlot),
@@ -671,6 +873,29 @@ function bindSheetEditing(scope, day, onDone) {
       () => day[el.dataset.editField],
       (v) => saveDayField(day, el.dataset.editField, v),
       { label: longDate(day.roster_date) + " — " + el.dataset.editField });
+  });
+}
+
+/* ---------------- service worker ---------------- */
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register("./sw.js").catch(() => {});
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (sessionStorage.getItem("sw_updated")) {
+      sessionStorage.removeItem("sw_updated");
+      location.reload();
+    }
+  });
+  navigator.serviceWorker.getRegistration().then((reg) => {
+    if (!reg) return;
+    reg.addEventListener("updatefound", () => {
+      const installing = reg.installing;
+      if (!installing) return;
+      installing.addEventListener("statechange", () => {
+        if (installing.state === "installed" && navigator.serviceWorker.controller) {
+          sessionStorage.setItem("sw_updated", "1");
+        }
+      });
+    });
   });
 }
 

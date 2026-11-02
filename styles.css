@@ -9,8 +9,25 @@
   --teal-dim: #DDEBE8;
   --wash: #F7EFC4;
   --danger: #B33A2F;
+  --ph-ink: #8A6D1A;
+  --ph-rule: #CBAF55;
   --radius: 4px;
   --pad: 20px;
+}
+
+[data-theme="dark"] {
+  --bg: #0F1A22;
+  --surface: #16222C;
+  --ink: #DCE7ED;
+  --dim: #7E93A2;
+  --rule: #26384A;
+  --rule-soft: #1E2F3C;
+  --teal: #2A9186;
+  --teal-dim: #163B36;
+  --wash: #383018;
+  --danger: #E06A5E;
+  --ph-ink: #C9A94B;
+  --ph-rule: #4A3D14;
 }
 
 * { box-sizing: border-box; }
@@ -110,6 +127,7 @@ button { font: inherit; }
   border-top: 1px solid var(--rule);
   text-align: center;
 }
+.credit { font-size: 11.5px; margin-top: 3px; }
 .error-banner {
   margin: 14px 0 0;
   border: 1.5px solid var(--danger);
@@ -143,7 +161,7 @@ button { font: inherit; }
 
 /* ---------- day sheet (shared by day view + today block) ---------- */
 .day-sheet { background: var(--surface); border: 1.5px solid var(--rule); border-top: none; }
-.day-sheet.is-ph { border-color: #D9C878; }
+.day-sheet.is-ph { border-color: var(--ph-rule); }
 .day-rows { display: grid; }
 .day-row {
   display: grid;
@@ -166,8 +184,8 @@ button { font: inherit; }
 .day-footnote .fn-label { color: var(--dim); }
 .day-footnote .fn-val { text-align: right; font-weight: 500; }
 .ph-stamp {
-  color: #8A6D1A;
-  border: 1.5px solid #CBAF55;
+  color: var(--ph-ink);
+  border: 1.5px solid var(--ph-rule);
   border-radius: 3px;
   font-size: 11px;
   font-weight: 600;
@@ -250,7 +268,7 @@ table.grid { border-collapse: collapse; min-width: 100%; font-size: 13.5px; }
 .th-day { font-size: 13px; color: var(--dim); font-weight: 600; }
 .stamp-num { display: block; font-size: 13px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
 .stamp-wd { display: block; font-size: 9.5px; letter-spacing: .05em; color: var(--dim); line-height: 1.2; }
-.stamp-ph { color: #8A6D1A; font-weight: 700; margin-left: 3px; letter-spacing: .02em; }
+.stamp-ph { color: var(--ph-ink); font-weight: 700; margin-left: 3px; letter-spacing: .02em; }
 .grid td { vertical-align: middle; }
 .grid td.stamp-col { cursor: pointer; }
 .grid td.stamp-col a { color: inherit; }
@@ -278,6 +296,28 @@ table.grid { border-collapse: collapse; min-width: 100%; font-size: 13.5px; }
   min-width: 64px;
 }
 .saving { opacity: .55; }
+
+/* ---------- sync strip (offline / loading status) ---------- */
+.sync-strip {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 7px var(--pad);
+  font-size: 12.5px;
+  color: var(--dim);
+  border-bottom: 1px dashed var(--rule);
+}
+.sync-strip.show { display: flex; }
+.sync-strip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
+.sync-strip.stale {
+  color: var(--ph-ink);
+  background: var(--wash);
+  border-bottom-color: transparent;
+}
+.sync-strip.stale .dot { background: var(--ph-ink); }
+.sync-strip.updated { color: var(--teal); }
+.sync-strip.updated .dot { background: var(--teal); }
 
 /* ---------- day view ---------- */
 .dayview-head {
