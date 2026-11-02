@@ -161,33 +161,48 @@ function staleText() {
     + (dataSavedAt() ? " (saved " + savedStamp() + ")" : "");
 }
 
-/* session controller: shows statuses only when a saved copy is on screen */
+/* session controller: shows statuses only when a saved copy is on screen.
+   "Up to date" only appears when the network update actually replaced the copy
+   that was on screen — a routine successful fetch stays silent. */
 function syncSession(cachedShown) {
   const shown = !!cachedShown;
   let timer = null;
+  let slowShown = false;
+  let staleShown = false;
   const obj = {
     shown: () => shown,
     stale() {
+      staleShown = true;
       clearInterval(timer); timer = null;
+      slowShown = false;
       stripShow("stale", staleText());
     },
     trying() {
-      if (!shown) return; /* nothing cached: the plain loading text covers it */
+      if (!shown) return;
       clearInterval(timer);
       timer = setTimeout(() => {
+        slowShown = true;
         syncStrip.classList.add("show");
         syncStrip.classList.remove("stale", "updated");
         syncText.textContent = "Reaching for the latest…";
       }, 900);
     },
-    fresh() {
+    /* changed = the fresh data differs from what was displayed */
+    fresh(changed) {
       clearInterval(timer); timer = null;
-      if (shown) stripShow("updated", "Up to date");
-      else stripHide();
-      syncTimer = setTimeout(() => { if (syncStrip.classList.contains("updated")) stripHide(); }, 2200);
+      const wasVisible = staleShown || slowShown;
+      staleShown = false;
+      slowShown = false;
+      if (wasVisible) {
+        stripShow("updated", "Up to date");
+        syncTimer = setTimeout(() => { if (syncStrip.classList.contains("updated")) stripHide(); }, 2000);
+      } else {
+        stripHide();
+      }
     },
     fail() {
       clearInterval(timer); timer = null;
+      slowShown = false;
       if (shown) this.stale();
     }
   };
@@ -580,9 +595,10 @@ async function todayView() {
       if (found.length) { day = found[0]; roster = match; }
     }
     if (day) {
+      const changed = !cachedDay || JSON.stringify(cachedDay.data) !== JSON.stringify(day);
       cacheWrite("day:" + t, day);
       renderToday(day);
-      sync.fresh();
+      sync.fresh(changed);
     } else {
       stripHide();
       const latest = rosters[0];
@@ -628,9 +644,10 @@ async function gridView(rosterId) {
     cacheWrite("rosters", rosters);
     const roster = pickRoster(rosters, rosterId, t);
     const days = await db.days(roster.id);
+    const changed = !cachedShown || JSON.stringify(cachedDaysData) !== JSON.stringify(days);
     cacheWrite("days:" + roster.id, days);
     renderGrid(roster, days);
-    sync.fresh();
+    sync.fresh(changed);
   } catch (e) {
     if (cachedShown) sync.fail();
     else { stripHide(); view.innerHTML = `<div class="error-banner">Couldn't load data — ${esc((e && e.message) || "server unreachable")}. <a href="#/grid">Retry</a></div>`; }
@@ -675,6 +692,8 @@ function renderGrid(roster, days) {
     </div>
     ${admin ? `<input type="file" id="file-csv" accept=".csv,text/csv" style="display:none">` : ""}
   `;
+
+  bindRowLinks(view);
 
   $$("td[data-edit-slot]", view).forEach((cell) => {
     const day = byId[cell.dataset.day];
@@ -769,10 +788,21 @@ function gridRow(day, cols, admin, today) {
     const edit = admin ? ` data-edit-slot="${esc(c)}" data-day="${day.id}" title="Tap to change"` : "";
     return `<td${edit}${dv.cls ? ' class="' + dv.cls + '"' : ""}>${esc(dv.text)}</td>`;
   }).join("");
-  return `<tr class="${day.is_ph ? "ph" : ""}${day.roster_date === today ? " today" : ""}">
+  return `<tr class="rowlink${day.is_ph ? " ph" : ""}${day.roster_date === today ? " today" : ""}" data-href="#/d/${day.roster_date}">
     <td class="stamp-col"><a href="#/d/${day.roster_date}" style="color:inherit">${stampCell(day)}</a></td>
     ${cells}
   </tr>`;
+}
+
+/* tapping anywhere on a row opens that day; admin duty cells handle their own taps */
+function bindRowLinks(scope) {
+  scope.querySelectorAll("tr.rowlink").forEach(tr => {
+    tr.addEventListener("click", (e) => {
+      if (e.target.closest("a, input, select, [data-edit-slot]")) return;
+      if (window.getSelection && String(window.getSelection()).length) return;
+      location.hash = tr.dataset.href;
+    });
+  });
 }
 
 /* ---------------- day view ---------------- */
@@ -807,7 +837,7 @@ async function dayView(date) {
     }
     cacheWrite("day:" + date, found[0]);
     renderDayDetail(date, found[0]);
-    sync.fresh();
+    sync.fresh(!!cachedDay && JSON.stringify(cachedDay.data) !== JSON.stringify(found[0]));
   } catch (e) {
     if (cachedShown) sync.fail();
     else { stripHide(); view.innerHTML = `<div class="error-banner">Couldn't load data — ${esc((e && e.message) || "server unreachable")}. <a href="#/d/${date}">Retry</a></div>`; }

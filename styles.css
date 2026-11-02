@@ -271,9 +271,17 @@ table.grid { border-collapse: collapse; min-width: 100%; font-size: 13.5px; }
 .stamp-ph { color: var(--ph-ink); font-weight: 700; margin-left: 3px; letter-spacing: .02em; }
 .grid td { vertical-align: middle; }
 .grid td.stamp-col { cursor: pointer; }
-.grid td.stamp-col a { color: inherit; }
+.grid td.stamp-col a { color: inherit; text-decoration: none; }
 .grid td.stamp-col:hover, .grid tr.ph td.stamp-col:hover { background: var(--teal-dim); }
 .grid tr.ph td.stamp-col:hover { background: #EFE3A6; }
+
+/* whole row opens the day; only admin edit cells opt out */
+.grid tbody tr.rowlink { cursor: pointer; }
+.grid tbody tr.rowlink td:not([data-edit-slot]):hover { background: var(--teal-dim); }
+.grid tbody tr.rowlink.ph td:not([data-edit-slot]):hover { background: #EFE3A6; }
+.grid tbody tr.rowlink td[data-edit-slot]:hover { background: var(--teal-dim); }
+.grid tbody tr.rowlink.ph td[data-edit-slot]:hover { background: #EFE3A6; }
+.grid td[data-edit-slot] { cursor: text; }
 .stamp-date { font-weight: 600; }
 .stamp-day { color: var(--dim); font-size: 12px; margin-left: 6px; }
 .grid tr.ph td { background: var(--wash); }
@@ -297,27 +305,53 @@ table.grid { border-collapse: collapse; min-width: 100%; font-size: 13.5px; }
 }
 .saving { opacity: .55; }
 
-/* ---------- sync strip (offline / loading status) ---------- */
+/* ---------- sync strip (offline / loading status) ----------
+   Floats above the content like a toast: never part of the layout,
+   so showing and hiding it can't shift anything. */
 .sync-strip {
-  display: none;
+  position: fixed;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translate(-50%, 12px);
+  display: flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
-  padding: 7px var(--pad);
+  padding: 8px 14px;
   font-size: 12.5px;
-  color: var(--dim);
-  border-bottom: 1px dashed var(--rule);
+  line-height: 1.2;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  box-shadow: 0 3px 14px rgba(0, 0, 0, .12);
+  max-width: calc(100% - 32px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+  z-index: 40;
 }
-.sync-strip.show { display: flex; }
+.sync-strip.show {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
 .sync-strip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--dim); flex: none; }
 .sync-strip.stale {
   color: var(--ph-ink);
   background: var(--wash);
-  border-bottom-color: transparent;
+  border-color: var(--ph-rule);
 }
 .sync-strip.stale .dot { background: var(--ph-ink); }
-.sync-strip.updated { color: var(--teal); }
+.sync-strip.updated { color: var(--teal); border-color: var(--teal); }
 .sync-strip.updated .dot { background: var(--teal); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sync-strip { transition: none; transform: translate(-50%, 0); }
+}
 
 /* ---------- day view ---------- */
 .dayview-head {
