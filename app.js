@@ -249,7 +249,10 @@ function syncSession(cachedShown) {
 
 /* ---------------- admin session ---------------- */
 const ADMIN_KEY = "opd_admin";
+const DEV_KEY = "opd_dev";
 function isAdmin() { return !!localStorage.getItem(ADMIN_KEY); }
+function isDeveloper() { return !!localStorage.getItem(DEV_KEY); }
+function anyAdmin() { return isAdmin() || isDeveloper(); }
 
 /* ---------------- CSV utils ---------------- */
 function parseCSV(text) {
@@ -395,20 +398,21 @@ async function loadHeader() {
     $("#brand-name").textContent = settingsCache.unit_name || "OPD Unit";
     $("#brand-hospital").textContent = settingsCache.hospital_name || "";
   } catch (_) { /* keep the defaults if completely offline with no cache */ }
-  $("#btn-login").hidden = isAdmin();
-  $("#btn-admin-menu").hidden = !isAdmin();
+  $("#btn-login").hidden = anyAdmin();
+  $("#btn-admin-menu").hidden = !anyAdmin();
 }
 
 $("#btn-login").addEventListener("click", async () => {
-  let hash = "";
+  let adminHash = "", devHash = "";
   try {
     if (!settingsCache) await refreshSettings();
-    hash = settingsCache.admin_pass_hash || "";
+    adminHash = settingsCache.admin_pass_hash || "";
+    devHash = settingsCache.developer_pass_hash || "";
   } catch (_) {}
-  if (!hash) return alert("Can't log in right now — no internet and no saved copy. Try again once you're back online.");
+  if (!adminHash && !devHash) return alert("Can't log in right now — no internet and no saved copy. Try again once you're back online.");
   openModal(`
-    <h3>Admin login</h3>
-    <p class="sub">Enter the unit password to edit rosters.</p>
+    <h3>Login</h3>
+    <p class="sub">Enter the admin or developer password.</p>
     <form id="login-form">
       <div class="field">
         <label for="pw">Password</label>
@@ -426,8 +430,12 @@ $("#btn-login").addEventListener("click", async () => {
     $("#login-form", modal).addEventListener("submit", async (e) => {
       e.preventDefault();
       const pw = $("#pw", modal).value;
-      if ((await sha256hex(PASS_SALT + pw)) === hash) {
-        localStorage.setItem(ADMIN_KEY, JSON.stringify({ at: Date.now() }));
+      const hash = await sha256hex(PASS_SALT + pw);
+      let role = null;
+      if (hash === adminHash) role = "admin";
+      else if (hash === devHash) role = "developer";
+      if (role) {
+        localStorage.setItem(role === "admin" ? ADMIN_KEY : DEV_KEY, JSON.stringify({ at: Date.now(), role }));
         closeModal();
         await loadHeader();
         route();
@@ -440,8 +448,9 @@ $("#btn-login").addEventListener("click", async () => {
 });
 
 $("#btn-admin-menu").addEventListener("click", () => {
+  const role = isDeveloper() ? "developer" : isAdmin() ? "admin" : "";
   openModal(`
-    <h3>Admin</h3>
+    <h3>${role.charAt(0).toUpperCase() + role.slice(1)}</h3>
     <p class="sub">Tap a cell to change it — changes save as you leave the box.</p>
     <div class="menu-list">
       <button class="btn quiet" data-x="settings" style="text-align:left">Unit name &amp; password</button>
@@ -452,6 +461,7 @@ $("#btn-admin-menu").addEventListener("click", () => {
     $("[data-cancel]", modal).addEventListener("click", closeModal);
     $("[data-x=logout]", modal).addEventListener("click", () => {
       localStorage.removeItem(ADMIN_KEY);
+      localStorage.removeItem(DEV_KEY);
       closeModal(); loadHeader(); route();
     });
     $("[data-x=settings]", modal).addEventListener("click", openSettingsModal);
@@ -471,6 +481,8 @@ async function openSettingsModal() {
       <hr>
       <div class="field"><label for="s-pw">New admin password (leave blank to keep current)</label>
         <input id="s-pw" type="password" autocomplete="new-password"></div>
+      <div class="field"><label for="s-devpw">New developer password (leave blank to keep current)</label>
+        <input id="s-devpw" type="password" autocomplete="new-password"></div>
       <div class="modal-actions">
         <button type="button" class="btn quiet" data-cancel>Cancel</button>
         <button type="submit" class="btn primary">Save</button>
@@ -486,6 +498,8 @@ async function openSettingsModal() {
         await db.patchSetting("hospital_name", $("#s-hosp", modal).value.trim());
         const pw = $("#s-pw", modal).value;
         if (pw) await db.patchSetting("admin_pass_hash", await sha256hex(PASS_SALT + pw));
+        const dpw = $("#s-devpw", modal).value;
+        if (dpw) await db.patchSetting("developer_pass_hash", await sha256hex(PASS_SALT + dpw));
         settingsCache = null;
         closeModal();
         await loadHeader();
@@ -553,7 +567,7 @@ function makeEditable(el, getValue, save, opts) {
 
 /* ---------------- shared markup ---------------- */
 function daySheet(day, opts) {
-  const editable = opts && opts.editable && isAdmin();
+  const editable = opts && opts.editable && anyAdmin();
   const cols = gridColumns([day]);
   const rows = cols.map((name) => {
     const val = slotValue(day, name);
@@ -614,9 +628,9 @@ function renderToday(day, rosterId) {
       </div>
     </div>
     ${daySheet(day, { editable: true })}
-    ${isAdmin() ? '<p class="hint">Tap any line to change it.</p>' : ""}
+    ${anyAdmin() ? '<p class="hint">Tap any line to change it.</p>' : ""}
   `;
-  if (isAdmin()) bindSheetEditing(view, day, () => route());
+  if (anyAdmin()) bindSheetEditing(view, day, () => route());
 }
 
 async function todayView() {
@@ -711,7 +725,6 @@ function pickRoster(list, rosterId, t) {
 function renderGrid(roster, days) {
   gridCurrent = roster.id;
   const cols = gridColumns(days);
-  const admin = isAdmin();
   const byId = {};
   days.forEach(d => byId[d.id] = d);
   const rostersNow = (cacheRead("rosters") || {}).data || [];
@@ -725,7 +738,7 @@ function renderGrid(roster, days) {
     <div class="grid-head">
       <h1 class="grid-title">Full grid</h1>
       ${selector}
-      ${admin ? `<div class="month-tools">
+      ${isDeveloper() ? `<div class="month-tools">
         <button class="btn primary" id="t-upload">Upload CSV</button>
         <button class="btn quiet" id="t-download">Download CSV</button>
       </div>` : ""}
@@ -890,7 +903,6 @@ async function dayView(date) {
 }
 
 function renderDayDetail(date, day) {
-  const editable = isAdmin();
   const d = parseISO(date);
   view.innerHTML = `
     <a class="backlink" href="#/grid">← Full grid</a>
@@ -902,13 +914,13 @@ function renderDayDetail(date, day) {
       </span>
     </div>
     ${daySheet(day, { editable: true })}
-    ${editable ? `<div class="dayview-tools">
+    ${isDeveloper() ? `<div class="dayview-tools">
       <button class="btn quiet" id="t-ph">${day.is_ph ? "Remove PH flag" : "Mark as PH"}</button>
       <button class="btn danger" id="t-destroy">Delete day</button>
     </div>
     <p class="hint">Tap a line to change it.</p>` : ""}
   `;
-  if (!editable) return;
+  if (!isDeveloper()) return;
   const rebuild = () => dayView(date);
   $("#t-ph").addEventListener("click", async () => {
     try { await saveDayField(day, "is_ph", !day.is_ph); await rebuild(); }
