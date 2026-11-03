@@ -241,7 +241,8 @@ button { font: inherit; }
 
 .gridwrap {
   margin-top: 14px;
-  overflow-x: auto;
+  overflow: auto;
+  max-height: calc(100vh - 250px);
   border: 1.5px solid var(--rule);
   border-radius: var(--radius);
   background: var(--surface);
@@ -259,6 +260,7 @@ table.grid { border-collapse: collapse; min-width: 100%; font-size: 13.5px; }
   font-family: "Barlow Condensed", sans-serif;
   font-size: 15px;
   font-weight: 600;
+  position: -webkit-sticky;
   position: sticky;
   top: 0;
   background: var(--surface);
@@ -299,6 +301,7 @@ table.grid { border-collapse: collapse; min-width: 100%; font-size: 13.5px; }
   outline: 2px solid var(--teal);
   outline-offset: -2px;
   background: var(--bg);
+  color: var(--ink);
   border-radius: 3px;
   padding: 3px 7px;
   font: inherit;

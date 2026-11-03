@@ -16,7 +16,7 @@ const LABELS = {
   "8to12": "8-12",
   "12to4": "12-4",
   "4to6I": "2-5.30(I)",
-  "4to6II": "4-5(II)",
+  "4to6II": "4-6(II)",
   "8to2": "8-2",
   "2to8": "2-8",
   "Night": "Night",
@@ -26,7 +26,11 @@ const LABELS = {
 const FIELD_COLS = { "Leave": "leave", "Night Off": "night_off" };
 /* order columns should prefer, while keeping any extra uploaded columns */
 const COL_ORDER = ["Leave", "8to12", "12to4", "4to6I", "4to6II", "8to2", "2to8", "Night", "Night Off"];
-function labelOf(key) { return LABELS[key] || key; }
+function labelOf(key, day) {
+  /* Saturday 2-8 shift runs 4-8 instead */
+  if (key === "2to8" && day && String(day.day_name || "").trim().toLowerCase() === "saturday") return "4-8";
+  return LABELS[key] || key;
+}
 function keyOfLabel(label) {
   const found = Object.keys(LABELS).find(k => LABELS[k].toLowerCase() === String(label).trim().toLowerCase());
   return found || label;
@@ -554,7 +558,7 @@ function daySheet(day, opts) {
   const rows = cols.map((name) => {
     const val = slotValue(day, name);
     return `<div class="day-row">
-      <div class="slot">${esc(labelOf(name))}</div>
+      <div class="slot">${esc(labelOf(name, day))}</div>
       <div class="val${editable ? " live-edit" : ""}"${editable ? ' data-edit-slot="' + esc(name) + '" title="Tap to change"' : ""}>${esc(displayValue(val).text)}</div>
     </div>`;
   }).join("");
