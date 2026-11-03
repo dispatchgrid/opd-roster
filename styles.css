@@ -216,12 +216,12 @@ button { font: inherit; }
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-top: 18px;
+  margin-top: 0;
   border-bottom: 2px solid var(--ink);
-  padding-bottom: 8px;
+  padding-bottom: 6px;
   flex-wrap: wrap;
 }
-.grid-title { font-size: 30px; }
+.grid-title { display: none; }
 .month-note { color: var(--dim); font-family: "Barlow Condensed", sans-serif; font-size: 20px; font-weight: 600; }
 .month-select { }
 .month-tools { display: flex; flex-wrap: wrap; gap: 7px; justify-content: flex-end; }
@@ -293,6 +293,15 @@ table.grid { border-collapse: collapse; min-width: 100%; font-size: 13.5px; }
 .grid tr.today td { box-shadow: inset 2px 0 0 var(--teal), inset 0 2px 0 var(--teal), inset -2px 0 0 var(--teal); }
 .grid tr:last-child td { border-bottom: none; }
 .grid .empty-note td, .empty-note { color: var(--dim); padding: 20px; }
+
+/* desktop scrollbar — dark themed, matches the app */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 6px; border: 3px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: var(--dim); }
+.gridwrap::-webkit-scrollbar { height: 10px; }
+.gridwrap::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 6px; border: 3px solid var(--surface); }
+.gridwrap::-webkit-scrollbar-thumb:hover { background: var(--dim); }
 
 /* ---------- inline editing ---------- */
 .editable { cursor: text; }
