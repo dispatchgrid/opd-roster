@@ -1,12 +1,12 @@
 /* OPD Roster service worker — keeps the app shell available offline */
 "use strict";
 
-const CACHE = "opd-static-v6";
+const CACHE = "opd-static-v7";
 const PRECACHE = [
   "./",
   "./index.html",
-  "./styles.css?v=6",
-  "./app.js?v=6"
+  "./styles.css?v=7",
+  "./app.js?v=7"
 ];
 const NET_TIMEOUT = 4000;
 

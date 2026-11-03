@@ -766,7 +766,7 @@ function renderGrid(roster, days) {
   const sel = $("#month-select");
   if (sel) sel.addEventListener("change", () => { location.hash = "#/grid/" + sel.value; });
 
-  if (!admin) return;
+  if (!isDeveloper()) return;
 
   $("#t-upload").addEventListener("click", () => $("#file-csv").click());
   $("#file-csv").addEventListener("change", async (e) => {
