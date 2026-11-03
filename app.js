@@ -725,6 +725,7 @@ function pickRoster(list, rosterId, t) {
 function renderGrid(roster, days) {
   gridCurrent = roster.id;
   const cols = gridColumns(days);
+  const admin = anyAdmin();
   const byId = {};
   days.forEach(d => byId[d.id] = d);
   const rostersNow = (cacheRead("rosters") || {}).data || [];
