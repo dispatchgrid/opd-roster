@@ -247,6 +247,119 @@ function syncSession(cachedShown) {
   return obj;
 }
 
+/* ---------------- analytics ---------------- */
+const ANALYTICS_KEY = "opd_analytics";
+const ANALYTICS_CLIENT_KEY = "opd_client_id";
+const ANALYTICS_SESSION_KEY = "opd_session_id";
+const ANALYTICS_FLUSH_INTERVAL = 30000; // flush queued events every 30s
+let analyticsQueue = [];
+let analyticsFlushTimer = null;
+
+function getOrCreateClientId() {
+  let id = localStorage.getItem(ANALYTICS_CLIENT_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(ANALYTICS_CLIENT_KEY, id);
+  }
+  return id;
+}
+
+function getOrCreateSessionId() {
+  let id = sessionStorage.getItem(ANALYTICS_SESSION_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    sessionStorage.setItem(ANALYTICS_SESSION_KEY, id);
+  }
+  return id;
+}
+
+function trackEvent(eventType, data = {}) {
+  const event = {
+    client_id: getOrCreateClientId(),
+    session_id: getOrCreateSessionId(),
+    event_type: eventType,
+    timestamp: new Date().toISOString(),
+    url: location.hash || "#/today",
+    user_agent: navigator.userAgent,
+    screen_width: screen.width,
+    screen_height: screen.height,
+    ...data
+  };
+  analyticsQueue.push(event);
+  if (analyticsQueue.length >= 10) flushAnalytics();
+}
+
+function flushAnalytics() {
+  if (analyticsQueue.length === 0) return;
+  const events = analyticsQueue.splice(0, analyticsQueue.length);
+  // Store locally first for offline support (store array directly)
+  const cached = cacheRead(ANALYTICS_KEY);
+  const existing = Array.isArray(cached?.data) ? cached.data : [];
+  const merged = [...existing, ...events].slice(-500);
+  cacheWrite(ANALYTICS_KEY, merged);
+  // Try to send to server if online
+  if (navigator.onLine) {
+    sendAnalyticsToServer(events).catch(() => {});
+  }
+}
+
+async function sendAnalyticsToServer(events) {
+  try {
+    await fetch(SUPABASE_URL + "/rest/v1/analytics_events", {
+      method: "POST",
+      headers: {
+        apikey: ANON_KEY,
+        Authorization: "Bearer " + ANON_KEY,
+        "Content-Type": "application/json",
+        Prefer: "return=minimal"
+      },
+      body: JSON.stringify(events)
+    });
+  } catch (_) {
+    // Silently fail - events are cached locally
+  }
+}
+
+// Track page views on route change
+const originalRoute = route;
+route = async function(...args) {
+  trackEvent("page_view", { path: location.hash || "#/today" });
+  return originalRoute.apply(this, args);
+};
+
+// Track clicks on interactive elements
+document.addEventListener("click", (e) => {
+  const target = e.target.closest("button, a, [data-edit-slot], [data-edit-field], .tab");
+  if (target) {
+    trackEvent("click", {
+      element: target.tagName.toLowerCase(),
+      id: target.id || null,
+      class: target.className || null,
+      text: target.textContent?.trim().slice(0, 50) || null
+    });
+  }
+}, true);
+
+// Track form submissions
+document.addEventListener("submit", (e) => {
+  trackEvent("form_submit", {
+    form_id: e.target.id || null,
+    action: e.target.action || null
+  });
+}, true);
+
+// Periodic flush
+analyticsFlushTimer = setInterval(flushAnalytics, ANALYTICS_FLUSH_INTERVAL);
+// Flush on page hide
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushAnalytics();
+});
+// Flush on before unload
+window.addEventListener("beforeunload", flushAnalytics);
+
+// Initial page view
+trackEvent("session_start", { referrer: document.referrer || "direct" });
+
 /* ---------------- admin session ---------------- */
 const ADMIN_KEY = "opd_admin";
 const DEV_KEY = "opd_dev";
@@ -435,6 +548,8 @@ $("#btn-login").addEventListener("click", async () => {
       if (hash === adminHash) role = "admin";
       else if (hash === devHash) role = "developer";
       if (role) {
+        // Clear the other role key to ensure mutual exclusivity
+        localStorage.removeItem(role === "admin" ? DEV_KEY : ADMIN_KEY);
         localStorage.setItem(role === "admin" ? ADMIN_KEY : DEV_KEY, JSON.stringify({ at: Date.now(), role }));
         closeModal();
         await loadHeader();
@@ -453,7 +568,8 @@ $("#btn-admin-menu").addEventListener("click", () => {
     <h3>${role.charAt(0).toUpperCase() + role.slice(1)}</h3>
     <p class="sub">Tap a cell to change it — changes save as you leave the box.</p>
     <div class="menu-list">
-      <button class="btn quiet" data-x="settings" style="text-align:left">Unit name &amp; password</button>
+      <button class="btn quiet" data-x="settings" style="text-align:left">Unit name & password</button>
+      ${isDeveloper() ? '<button class="btn quiet" data-x="analytics" style="text-align:left">Analytics</button>' : ''}
       <button class="btn quiet" data-x="logout" style="text-align:left">Log out</button>
     </div>
     <div class="modal-actions"><button class="btn quiet" data-cancel>Close</button></div>
@@ -465,6 +581,11 @@ $("#btn-admin-menu").addEventListener("click", () => {
       closeModal(); loadHeader(); route();
     });
     $("[data-x=settings]", modal).addEventListener("click", openSettingsModal);
+    const analyticsBtn = $("[data-x=analytics]", modal);
+    if (analyticsBtn) analyticsBtn.addEventListener("click", () => {
+      closeModal();
+      location.hash = "#/analytics";
+    });
   });
 });
 
@@ -600,6 +721,7 @@ async function route() {
   try {
     if (parts[0] === "grid") await gridView(parts[1] || null);
     else if (parts[0] === "d" && parts[1]) await dayView(parts[1]);
+    else if (parts[0] === "analytics") await analyticsView();
     else await todayView();
   } catch (e) {
     view.innerHTML = `<div class="error-banner">Couldn't load data — ${esc((e && e.message) || "server unreachable")}. <a href="#/today">Retry</a></div>`;
@@ -947,6 +1069,125 @@ function renderDayDetail(date, day) {
   bindSheetEditing(view, day, rebuild);
 }
 
+/* ---------------- analytics view (developer only) ---------------- */
+async function analyticsView() {
+  if (!isDeveloper()) {
+    view.innerHTML = `<div class="error-banner">Access denied. Developer account required.</div>`;
+    return;
+  }
+
+  view.innerHTML = `
+    <div class="grid-head">
+      <h1 class="grid-title">Analytics Dashboard</h1>
+    </div>
+    <div class="gridwrap">
+      <div style="padding: 20px;">
+        <div class="section-label">Overview</div>
+        <div id="analytics-overview" class="analytics-cards"></div>
+        
+        <div class="section-label" style="margin-top: 24px;">Events (Last 100)</div>
+        <div id="analytics-events" class="analytics-table"></div>
+        
+        <div class="section-label" style="margin-top: 24px;">Local Cache</div>
+        <div id="analytics-cache" class="analytics-table"></div>
+      </div>
+    </div>
+  `;
+
+  await renderAnalytics();
+}
+
+async function renderAnalytics() {
+  // Fetch from server
+  let serverEvents = [];
+  try {
+    const res = await fetch(SUPABASE_URL + "/rest/v1/analytics_events?select=*&order=timestamp.desc&limit=200", {
+      headers: { apikey: ANON_KEY, Authorization: "Bearer " + ANON_KEY }
+    });
+    if (res.ok) serverEvents = await res.json();
+  } catch (_) {}
+
+  // Get local cache (stored as array directly)
+  const cached = cacheRead(ANALYTICS_KEY);
+  const localEvents = Array.isArray(cached?.data) ? cached.data : [];
+
+  // Combine and deduplicate by timestamp+client_id+event_type
+  const allEvents = [...serverEvents, ...localEvents];
+  const seen = new Set();
+  const uniqueEvents = allEvents.filter(e => {
+    const key = `${e.timestamp}|${e.client_id}|${e.event_type}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+  // Compute stats
+  const now = new Date();
+  const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  
+  const uniqueClients = new Set(uniqueEvents.map(e => e.client_id)).size;
+  const totalSessions = new Set(uniqueEvents.map(e => e.session_id)).size;
+  const pageViews = uniqueEvents.filter(e => e.event_type === "page_view").length;
+  const clicks = uniqueEvents.filter(e => e.event_type === "click").length;
+  const formSubmits = uniqueEvents.filter(e => e.event_type === "form_submit").length;
+  const last24h = uniqueEvents.filter(e => new Date(e.timestamp) > dayAgo).length;
+  const last7d = uniqueEvents.filter(e => new Date(e.timestamp) > weekAgo).length;
+
+  // Overview cards
+  $("#analytics-overview").innerHTML = `
+    <div class="analytics-card-row">
+      <div class="analytics-card"><div class="analytics-card-value">${uniqueClients}</div><div class="analytics-card-label">Unique Users</div></div>
+      <div class="analytics-card"><div class="analytics-card-value">${totalSessions}</div><div class="analytics-card-label">Total Sessions</div></div>
+      <div class="analytics-card"><div class="analytics-card-value">${pageViews}</div><div class="analytics-card-label">Page Views</div></div>
+      <div class="analytics-card"><div class="analytics-card-value">${clicks}</div><div class="analytics-card-label">Clicks</div></div>
+      <div class="analytics-card"><div class="analytics-card-value">${formSubmits}</div><div class="analytics-card-label">Form Submits</div></div>
+      <div class="analytics-card"><div class="analytics-card-value">${last24h}</div><div class="analytics-card-label">Events (24h)</div></div>
+      <div class="analytics-card"><div class="analytics-card-value">${last7d}</div><div class="analytics-card-label">Events (7d)</div></div>
+    </div>
+  `;
+
+  // Events table
+  const eventRows = uniqueEvents.slice(0, 100).map(e => `
+    <tr>
+      <td>${new Date(e.timestamp).toLocaleString()}</td>
+      <td><span class="event-type-${e.event_type}">${esc(e.event_type)}</span></td>
+      <td>${esc(e.client_id.slice(0, 8))}…</td>
+      <td>${esc(e.session_id.slice(0, 8))}…</td>
+      <td>${esc(e.url)}</td>
+      <td>${esc(JSON.stringify(e).slice(0, 100))}</td>
+    </tr>
+  `).join("");
+  
+  $("#analytics-events").innerHTML = `
+    <table class="grid" style="font-size: 12px;">
+      <thead><tr>
+        <th>Time</th><th>Event</th><th>Client ID</th><th>Session ID</th><th>URL</th><th>Data</th>
+      </tr></thead>
+      <tbody>${eventRows || '<tr><td colspan="6" class="empty-note">No events recorded yet</td></tr>'}</tbody>
+    </table>
+  `;
+
+  // Local cache table
+  const cacheRows = (localEvents.slice(-50).reverse()).map(e => `
+    <tr>
+      <td>${new Date(e.timestamp).toLocaleString()}</td>
+      <td>${esc(e.event_type)}</td>
+      <td>${esc(e.client_id.slice(0, 8))}…</td>
+      <td>${esc(e.url)}</td>
+    </tr>
+  `).join("");
+  
+  $("#analytics-cache").innerHTML = `
+    <table class="grid" style="font-size: 12px;">
+      <thead><tr>
+        <th>Time</th><th>Event</th><th>Client ID</th><th>URL</th>
+      </tr></thead>
+      <tbody>${cacheRows || '<tr><td colspan="4" class="empty-note">No local cache</td></tr>'}</tbody>
+    </table>
+  `;
+}
+
 /* cell editing inside a day sheet (today + day view) */
 function bindSheetEditing(scope, day, onDone) {
   scope.querySelectorAll("[data-edit-slot]").forEach(el => {
@@ -988,3 +1229,4 @@ if ("serviceWorker" in navigator && window.isSecureContext) {
 
 /* ---------------- boot ---------------- */
 loadHeader().then(route).catch(() => route());
+
