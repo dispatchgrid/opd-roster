@@ -1,13 +1,16 @@
 /* OPD Roster service worker — keeps the app shell available offline */
 "use strict";
 
-const CACHE = "opd-static-v17";
+const CACHE = "opd-static-v18";
 const PRECACHE = [
   "./",
   "./index.html",
-  "./styles.css?v=17",
-  "./app.js?v=17"
+  "./styles.css?v=18",
+  "./app.js?v=18"
 ];
+/* Documents are kept in their own cache so a version bump never evicts a
+   multi-megabyte PDF the user already downloaded. */
+const DOC_CACHE = "opd-docs-v1";
 const NET_TIMEOUT = 4000;
 
 self.addEventListener("install", (e) => {
@@ -21,7 +24,7 @@ self.addEventListener("install", (e) => {
 self.addEventListener("activate", (e) => {
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE && k !== DOC_CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -37,6 +40,25 @@ self.addEventListener("fetch", (event) => {
 
   /* app data passes straight through to the network (data caching is handled in the app) */
   if (url.hostname === "iuddpeelzfpbuvyxrrec.supabase.co") return;
+
+  /* guideline documents: cache-first, so an opened PDF works offline afterwards */
+  if (/\.pdf$/i.test(url.pathname)) {
+    event.respondWith((async () => {
+      const cache = await caches.open(DOC_CACHE);
+      const hit = await cache.match(req, { ignoreSearch: true });
+      if (hit) return hit;
+      try {
+        const fresh = await fetch(req);
+        if (fresh && fresh.ok) cache.put(req, fresh.clone()).catch(() => {});
+        return fresh;
+      } catch (_) {
+        return new Response("This document isn't saved offline yet — open it once while online.", {
+          status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" }
+        });
+      }
+    })());
+    return;
+  }
 
   /* page loads: newest over the network when possible, cached shell otherwise */
   if (req.mode === "navigate") {
