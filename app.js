@@ -1135,11 +1135,14 @@ function renderDayDetail(date, day) {
     ${isDeveloper() ? `<div class="dayview-tools">
       <button class="btn quiet" id="t-ph">${day.is_ph ? "Remove PH flag" : "Mark as PH"}</button>
       <button class="btn danger" id="t-destroy">Delete day</button>
-    </div>
-    <p class="hint">Tap a line to change it.</p>` : ""}
+    </div>` : ""}
+    ${anyAdmin() ? '<p class="hint">Tap a line to change it.</p>' : ""}
   `;
-  if (!isDeveloper()) return;
+  /* cell editing is for both roles; the PH / delete tools above are developer-only */
+  if (!anyAdmin()) return;
   const rebuild = () => dayView(date);
+  bindSheetEditing(view, day, rebuild);
+  if (!isDeveloper()) return;
   $("#t-ph").addEventListener("click", async () => {
     try { await saveDayField(day, "is_ph", !day.is_ph); await rebuild(); }
     catch (err) { alert("Couldn't save" + (connState === "offline" ? " — you are offline" : "") + ": " + (err.message || err)); }
@@ -1161,7 +1164,6 @@ function renderDayDetail(date, day) {
       });
     });
   });
-  bindSheetEditing(view, day, rebuild);
 }
 
 /* ---------------- analytics view (developer only) ---------------- */
