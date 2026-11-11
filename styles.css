@@ -175,6 +175,24 @@ button { font: inherit; }
 .day-row:last-child { border-bottom: none; }
 .day-row .slot { padding: 8px 12px; color: var(--dim); font-size: 13px; }
 .day-row .val { padding: 8px 12px 8px 0; font-weight: 500; }
+/* names sit under the value; the wrapper keeps the row two columns */
+.val-wrap { min-width: 0; padding: 6px 12px 6px 0; }
+.val-wrap .val { padding: 0; }
+.val-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 3px;
+}
+.name-chip {
+  font-size: 11.5px;
+  line-height: 1.3;
+  color: var(--teal);
+  background: var(--teal-dim);
+  border-radius: 3px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
 .val.is-dash { color: var(--dim); font-weight: 400; }
 .val.is-empty::before { content: "—"; opacity: .25; font-weight: 400; }
 .day-footnotes { border-top: 1px solid var(--rule); }

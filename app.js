@@ -686,15 +686,44 @@ function makeEditable(el, getValue, save, opts) {
   });
 }
 
+/* ---------------- doctor names (letter -> name) ---------------- */
+/* Codes are concatenated (e.g. "AVFCKN") and "/" separates groups ("J/F"),
+   so resolution walks every character instead of splitting on tokens. */
+function doctorMap() {
+  try {
+    const raw = settingsCache && settingsCache.doctors;
+    if (!raw) return {};
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_) { return {}; }
+}
+function namesFor(value) {
+  const map = doctorMap(), out = [], seen = new Set();
+  for (const ch of String(value ?? "")) {
+    if (!/[A-Za-z]/.test(ch)) continue;
+    const name = map[ch.toUpperCase()];
+    if (name && !seen.has(name)) { seen.add(name); out.push(name); }
+  }
+  return out;
+}
+
 /* ---------------- shared markup ---------------- */
 function daySheet(day, opts) {
   const editable = opts && opts.editable && anyAdmin();
+  const showNames = !!(opts && opts.showNames);
   const cols = gridColumns([day]);
   const rows = cols.map((name) => {
     const val = slotValue(day, name);
+    const names = showNames ? namesFor(val) : [];
+    const valEl = `<div class="val${editable ? " live-edit" : ""}"${editable ? ' data-edit-slot="' + esc(name) + '" title="Tap to change"' : ""}>${esc(displayValue(val).text)}</div>`;
+    /* chips sit in a sibling of .val so inline editing (which clears the
+       value element on tap) can never wipe them */
+    const chips = names.length
+      ? `<div class="val-names">${names.map(n => `<span class="name-chip">${esc(n)}</span>`).join("")}</div>`
+      : "";
     return `<div class="day-row">
       <div class="slot">${esc(labelOf(name, day))}</div>
-      <div class="val${editable ? " live-edit" : ""}"${editable ? ' data-edit-slot="' + esc(name) + '" title="Tap to change"' : ""}>${esc(displayValue(val).text)}</div>
+      <div class="val-wrap">${valEl}${chips}</div>
     </div>`;
   }).join("");
   const notes = [];
@@ -749,7 +778,7 @@ function renderToday(day, rosterId) {
         <div class="today-meta">${MON[d.getDay()]}${day.is_ph ? ' · <span class="ph-stamp">PH</span> public holiday' : ""}</div></span>
       </div>
     </div>
-    ${daySheet(day, { editable: true })}
+    ${daySheet(day, { editable: true, showNames: true })}
     ${anyAdmin() ? '<p class="hint">Tap any line to change it.</p>' : ""}
   `;
   if (anyAdmin()) bindSheetEditing(view, day, () => route());
@@ -1036,7 +1065,7 @@ function renderDayDetail(date, day) {
         <div class="dayview-meta">${esc(day.day_name || MON[d.getDay()])}${day.is_ph ? ' · <span class="ph-stamp">PH</span> public holiday' : ""}</div>
       </span>
     </div>
-    ${daySheet(day, { editable: true })}
+    ${daySheet(day, { editable: true, showNames: true })}
     ${isDeveloper() ? `<div class="dayview-tools">
       <button class="btn quiet" id="t-ph">${day.is_ph ? "Remove PH flag" : "Mark as PH"}</button>
       <button class="btn danger" id="t-destroy">Delete day</button>
