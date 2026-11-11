@@ -17,6 +17,7 @@ const DOCTORS = {
   F: "Dr Priyangani",
   H: "Dr Rashida",
   J: "Dr Ruwan",
+  K: "Dr Eishani",
   N: "Dr Wasantha",
   P: "Dr Senaka",
   Q: "Dr Chintha",

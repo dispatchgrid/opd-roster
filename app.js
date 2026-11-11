@@ -129,7 +129,14 @@ function currentTheme() {
   return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
 }
 function applyThemeLabel() {
-  $("#btn-theme").textContent = currentTheme() === "dark" ? "Light" : "Dark";
+  const dark = currentTheme() === "dark";
+  const btn = $("#btn-theme");
+  /* button shows the theme you'd switch TO */
+  btn.querySelector(".ico-sun").style.display = dark ? "block" : "none";
+  btn.querySelector(".ico-moon").style.display = dark ? "none" : "block";
+  const label = dark ? "Switch to light theme" : "Switch to dark theme";
+  btn.setAttribute("aria-label", label);
+  btn.setAttribute("title", label);
 }
 $("#btn-theme").addEventListener("click", () => {
   const next = currentTheme() === "dark" ? "light" : "dark";
@@ -568,9 +575,26 @@ $("#btn-admin-menu").addEventListener("click", () => {
     <h3>${role.charAt(0).toUpperCase() + role.slice(1)}</h3>
     <p class="sub">Tap a cell to change it — changes save as you leave the box.</p>
     <div class="menu-list">
-      <button class="btn quiet" data-x="settings" style="text-align:left">Unit name & password</button>
-      ${isDeveloper() ? '<button class="btn quiet" data-x="analytics" style="text-align:left">Analytics</button>' : ''}
-      <button class="btn quiet" data-x="logout" style="text-align:left">Log out</button>
+      <button class="btn quiet menu-item" data-x="settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.09a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/>
+        </svg>
+        <span>Unit name &amp; password</span>
+      </button>
+      ${isDeveloper() ? `<button class="btn quiet menu-item" data-x="analytics">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/>
+        </svg>
+        <span>Analytics</span>
+      </button>` : ''}
+      <button class="btn quiet menu-item" data-x="logout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M9 21H5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h4"/>
+          <path d="M16 17l5-5-5-5M21 12H9"/>
+        </svg>
+        <span>Log out</span>
+      </button>
     </div>
     <div class="modal-actions"><button class="btn quiet" data-cancel>Close</button></div>
   `, (modal) => {
@@ -588,6 +612,33 @@ $("#btn-admin-menu").addEventListener("click", () => {
     });
   });
 });
+
+/* ---------------- doctor legend ---------------- */
+function legendEntries() {
+  const map = doctorMap();
+  return Object.keys(map)
+    .filter(k => /^[A-Za-z]$/.test(k) && map[k])
+    .map(k => ({ code: k.toUpperCase(), name: String(map[k]) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+async function openLegendModal() {
+  if (!settingsCache) { try { await refreshSettings(); } catch (_) {} }
+  const entries = legendEntries();
+  const body = entries.length
+    ? `<div class="legend-grid">${entries.map(e =>
+        `<div class="legend-item"><span class="legend-code">${esc(e.code)}</span><span class="legend-name">${esc(e.name)}</span></div>`
+      ).join("")}</div>`
+    : `<p class="sub">No names have been added yet.</p>`;
+  openModal(`
+    <h3>Doctor letters</h3>
+    <p class="sub">Each letter on the roster stands for one doctor.</p>
+    ${body}
+    <div class="modal-actions"><button class="btn quiet" data-cancel>Close</button></div>
+  `, (modal) => {
+    $("[data-cancel]", modal).addEventListener("click", closeModal);
+  });
+}
+$("#btn-legend").addEventListener("click", openLegendModal);
 
 async function openSettingsModal() {
   if (!settingsCache) await refreshSettings();
@@ -710,20 +761,12 @@ function namesFor(value) {
 /* ---------------- shared markup ---------------- */
 function daySheet(day, opts) {
   const editable = opts && opts.editable && anyAdmin();
-  const showNames = !!(opts && opts.showNames);
   const cols = gridColumns([day]);
   const rows = cols.map((name) => {
     const val = slotValue(day, name);
-    const names = showNames ? namesFor(val) : [];
-    const valEl = `<div class="val${editable ? " live-edit" : ""}"${editable ? ' data-edit-slot="' + esc(name) + '" title="Tap to change"' : ""}>${esc(displayValue(val).text)}</div>`;
-    /* chips sit in a sibling of .val so inline editing (which clears the
-       value element on tap) can never wipe them */
-    const chips = names.length
-      ? `<div class="val-names">${names.map(n => `<span class="name-chip">${esc(n)}</span>`).join("")}</div>`
-      : "";
     return `<div class="day-row">
       <div class="slot">${esc(labelOf(name, day))}</div>
-      <div class="val-wrap">${valEl}${chips}</div>
+      <div class="val${editable ? " live-edit" : ""}"${editable ? ' data-edit-slot="' + esc(name) + '" title="Tap to change"' : ""}>${esc(displayValue(val).text)}</div>
     </div>`;
   }).join("");
   const notes = [];
@@ -778,7 +821,7 @@ function renderToday(day, rosterId) {
         <div class="today-meta">${MON[d.getDay()]}${day.is_ph ? ' · <span class="ph-stamp">PH</span> public holiday' : ""}</div></span>
       </div>
     </div>
-    ${daySheet(day, { editable: true, showNames: true })}
+    ${daySheet(day, { editable: true })}
     ${anyAdmin() ? '<p class="hint">Tap any line to change it.</p>' : ""}
   `;
   if (anyAdmin()) bindSheetEditing(view, day, () => route());
@@ -905,6 +948,7 @@ function renderGrid(roster, days) {
   `;
 
   bindRowLinks(view);
+  scrollGridToToday();
 
   $$("td[data-edit-slot]", view).forEach((cell) => {
     const day = byId[cell.dataset.day];
@@ -1004,6 +1048,28 @@ function gridRow(day, cols, admin, today) {
   </tr>`;
 }
 
+/* keeps today's row visible inside the scrolling grid: centres it when the
+   row sits outside the visible band, otherwise leaves the scroll alone */
+function scrollGridToToday(force) {
+  const wrap = $(".gridwrap", view) || $(".gridwrap");
+  if (!wrap) return;
+  const row = wrap.querySelector("tr.today");
+  if (!row) return;
+  const rowTop = row.offsetTop;
+  const rowH = row.offsetHeight;
+  const viewH = wrap.clientHeight;
+  const visibleTop = wrap.scrollTop;
+  const visibleBottom = visibleTop + viewH;
+  const headH = wrap.querySelector("thead")?.offsetHeight || 0;
+
+  /* already comfortably in view — don't move it */
+  const inComfortableView = rowTop >= visibleTop + headH && rowTop + rowH <= visibleBottom - 8;
+  if (inComfortableView && !force) return;
+
+  const target = rowTop - headH - (viewH - headH - rowH) / 2;
+  wrap.scrollTop = Math.max(0, target);
+}
+
 /* tapping anywhere on a row opens that day; admin duty cells handle their own taps */
 function bindRowLinks(scope) {
   scope.querySelectorAll("tr.rowlink").forEach(tr => {
@@ -1065,7 +1131,7 @@ function renderDayDetail(date, day) {
         <div class="dayview-meta">${esc(day.day_name || MON[d.getDay()])}${day.is_ph ? ' · <span class="ph-stamp">PH</span> public holiday' : ""}</div>
       </span>
     </div>
-    ${daySheet(day, { editable: true, showNames: true })}
+    ${daySheet(day, { editable: true })}
     ${isDeveloper() ? `<div class="dayview-tools">
       <button class="btn quiet" id="t-ph">${day.is_ph ? "Remove PH flag" : "Mark as PH"}</button>
       <button class="btn danger" id="t-destroy">Delete day</button>
