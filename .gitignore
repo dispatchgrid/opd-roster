@@ -1,5 +1,6 @@
 node_modules/
 package-lock.json
 *.pdf
+!guidelines/*.pdf
 *.svg
 design-philosophy.md

@@ -795,6 +795,7 @@ async function route() {
     if (parts[0] === "grid") await gridView(parts[1] || null);
     else if (parts[0] === "d" && parts[1]) await dayView(parts[1]);
     else if (parts[0] === "analytics") await analyticsView();
+    else if (parts[0] === "guidelines") await guidelinesView();
     else await todayView();
   } catch (e) {
     view.innerHTML = `<div class="error-banner">Couldn't load data — ${esc((e && e.message) || "server unreachable")}. <a href="#/today">Retry</a></div>`;
@@ -804,7 +805,9 @@ async function route() {
 window.addEventListener("hashchange", route);
 
 function syncTabs(section) {
-  const active = section === "grid" || section === "d" ? "grid" : "today";
+  const active = section === "grid" || section === "d" ? "grid"
+    : section === "guidelines" ? "guidelines"
+    : "today";
   $$("#tabs .tab").forEach(t => {
     if (t.dataset.tab === active) t.setAttribute("aria-current", "page");
     else t.removeAttribute("aria-current");
@@ -1165,6 +1168,37 @@ function renderDayDetail(date, day) {
       });
     });
   });
+}
+
+/* ---------------- guidelines ---------------- */
+/* PDFs live in /guidelines and are served by the service worker cache-first,
+   so a document already opened once keeps working offline. */
+const GUIDE_DOCS = [
+  { id: "antirabies", title: "Anti-rabies", sub: "Post-exposure prophylaxis", file: "guidelines/antirabies.pdf" }
+];
+function guidelinesView() {
+  const blocks = GUIDE_DOCS.map(d => `
+    <section class="guide-card" id="guide-${esc(d.id)}">
+      <div class="guide-head">
+        <div>
+          <h2 class="guide-title">${esc(d.title)}</h2>
+          <div class="guide-sub">${esc(d.sub)}</div>
+        </div>
+        <a class="btn quiet guide-open" href="${esc(d.file)}" target="_blank" rel="noopener">Open</a>
+      </div>
+      <div class="guide-frame">
+        <iframe src="${esc(d.file)}#view=FitH" title="${esc(d.title)} guideline" loading="lazy"></iframe>
+      </div>
+      <p class="hint">If the document does not appear, <a href="${esc(d.file)}" target="_blank" rel="noopener">open it in a new tab</a>.</p>
+    </section>
+  `).join("");
+
+  view.innerHTML = `
+    <div class="grid-head">
+      <h1 class="grid-title">Guidelines</h1>
+    </div>
+    ${blocks}
+  `;
 }
 
 /* ---------------- analytics view (developer only) ---------------- */
