@@ -75,6 +75,9 @@ button { font: inherit; }
 }
 .icon-btn svg { width: 19px; height: 19px; display: block; }
 
+/* author display rules above would otherwise beat the UA [hidden] rule */
+[hidden] { display: none !important; }
+
 /* ---------- buttons ---------- */
 .btn {
   border: 1.5px solid var(--ink);
