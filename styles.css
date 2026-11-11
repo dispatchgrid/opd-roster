@@ -66,6 +66,18 @@ button { font: inherit; }
 .brand-hospital { font-size: 12px; color: var(--dim); }
 .topbar-actions { display: flex; gap: 8px; }
 
+/* ---------- icon buttons ---------- */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 9px;
+}
+.icon-btn svg { width: 19px; height: 19px; display: block; }
+
+/* author display rules above would otherwise beat the UA [hidden] rule */
+[hidden] { display: none !important; }
+
 /* ---------- buttons ---------- */
 .btn {
   border: 1.5px solid var(--ink);
@@ -419,6 +431,14 @@ table.grid { border-collapse: collapse; min-width: 100%; font-size: 13.5px; }
 
 /* ---------- admin menu list ---------- */
 .menu-list { display: grid; gap: 10px; }
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  padding: 10px 13px;
+}
+.menu-item svg { width: 18px; height: 18px; flex: none; color: var(--dim); }
 
 /* ---------- column editor ---------- */
 .col-list { display: grid; gap: 8px; }
@@ -452,6 +472,67 @@ table.grid { border-collapse: collapse; min-width: 100%; font-size: 13.5px; }
   .day-row { grid-template-columns: 180px 1fr; min-height: 40px; }
   .today-num { font-size: 56px; }
 }
+
+/* ---------- analytics dashboard ---------- */
+.analytics-card-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.analytics-card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 16px 12px;
+  text-align: center;
+}
+.analytics-card-value {
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--teal);
+  line-height: 1.1;
+}
+.analytics-card-label {
+  font-size: 12px;
+  color: var(--dim);
+  margin-top: 4px;
+}
+.analytics-table { overflow-x: auto; }
+.event-type-page_view { color: var(--teal); font-weight: 600; }
+.event-type-click { color: var(--dim); }
+.event-type-form_submit { color: var(--ph-ink); font-weight: 600; }
+.event-type-session_start { color: var(--ink); }
+
+/* ---------- doctor legend ---------- */
+.legend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px 14px;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.legend-code {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: "Barlow Condensed", sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--teal);
+  background: var(--teal-dim);
+  border-radius: 3px;
+}
+.legend-name { font-size: 13.5px; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
