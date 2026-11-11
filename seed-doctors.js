@@ -19,10 +19,10 @@ const DOCTORS = {
   J: "Dr Ruwan",
   K: "Dr Eishani",
   N: "Dr Wasantha",
-  P: "Dr Senaka",
+  P: "Dr Praneetha",
   Q: "Dr Chintha",
   R: "Dr Ishara",
-  S: "Dr Praneetha",
+  S: "Dr Senaka",
   T: "Dr Shiyana",
   U: "Dr Upeka",
   V: "Dr Prasanga"

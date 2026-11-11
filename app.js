@@ -619,7 +619,8 @@ function legendEntries() {
   return Object.keys(map)
     .filter(k => /^[A-Za-z]$/.test(k) && map[k])
     .map(k => ({ code: k.toUpperCase(), name: String(map[k]) }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    /* sorted by letter, the order you meet them in the grid */
+    .sort((a, b) => a.code.localeCompare(b.code));
 }
 async function openLegendModal() {
   if (!settingsCache) { try { await refreshSettings(); } catch (_) {} }
